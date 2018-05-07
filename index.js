@@ -29,7 +29,7 @@ io.on('connection', (socket) => {
 
         let room = await redisClient.hget('member:'+memberData.id, 'room');
 
-        let betReturn = 0;
+        let betReturnPrice = 0;
 
         let betThisRun = await redisClient.hget('member:'+memberData.id, 'betThisRun');
         if(betThisRun && betThisRun!=0)
@@ -49,21 +49,21 @@ io.on('connection', (socket) => {
                         let total = await redisClient.hget(betSelect, 'total');
                         await redisClient.hset(betSelect, 'total', total - betPrice);
 
-                        betReturn = betReturn + parseInt(betPrice);
+                        betReturnPrice = betReturnPrice + parseInt(betPrice);
                     }
                 }
             }
+
+            let betReturn = {
+                price: betReturnPrice,
+                by: 'clear',
+                type: 'clear',
+            };
             await addMoney(memberData.id, betReturn);
             socket.emit('betReturn', betReturn);
         }
 
     });
-
-    async function addMoney(memberId, moneyToAdd)
-    {
-        memberMoney = await redisClient.hget('member:'+memberId,'money');
-        await redisClient.hset('member:'+memberId,'money', parseInt(memberMoney) + parseInt(moneyToAdd));
-    }
 
     socket.on('bet', async (betData) => {
 
@@ -75,7 +75,7 @@ io.on('connection', (socket) => {
         let money = await redisClient.hget('member:'+memberData.id, 'money');
         let moneyLeft = money - betData.betPrice;
         if(moneyLeft<0)
-            $socket.emit('moneyLeft', 'notEnough');
+            socket.emit('moneyLeft', 'notEnough');
         else
         {
             await redisClient.hset('member:'+memberData.id, 'money', moneyLeft);
@@ -100,6 +100,9 @@ io.on('connection', (socket) => {
 
     socket.on('isOnline',async (data) => {
         let memberData = await authAndGetAcc(data.token);
+
+        await redisClient.set('socketIds:'+socket. id,memberData.id);
+
         let money = await redisClient.hget('member:'+memberData.id, 'money');///////////////////////////////////需改為從某處拿資料
         if(!money)
         {
@@ -121,6 +124,25 @@ io.on('connection', (socket) => {
         socket.emit('memberData',accData);
     });
 
+    socket.on('disconnect', async () => {
+        //del room
+        let memberID = await redisClient.get('socketIds:'+socket.id);
+        let room = await redisClient.hget('member:'+memberID, 'room');
+        console.log(room);
+
+        await redisClient.hdel('member:'+ memberID, 'room');
+        await redisClient.srem('rooms:'+room, memberID);
+
+        //leave room 
+        socket.leave(room);
+
+        //betclear
+
+    });
+
+    socket.on('leaveRoom',async () => {
+        
+    });
 
     // joinData = {
     //     room: this.$route.params.room,
@@ -137,10 +159,12 @@ io.on('connection', (socket) => {
 
     socket.on('startGame', async (gameData) => {
 
+        let memberData = await authAndGetAcc(gameData.token);
         let betThisRun = await redisClient.hget('member:'+memberData.id, 'betThisRun');
+        console.log('startgame');
+
         if(betThisRun && betThisRun!=0)
         {
-            let memberData = await authAndGetAcc(gameData.token);
 
             let playerCards = [];
             let bankerCards = [];
@@ -157,8 +181,8 @@ io.on('connection', (socket) => {
             console.log(playerCards, bankerCards, Cards.length);
 
             //兩張牌數字
-            var playerNumber = (playerCards[0]+playerCards[1])%10;
-            var bankerNumber = (bankerCards[0]+bankerCards[1])%10;
+            var playerNumber = ( cardValue(playerCards[0]) + cardValue(playerCards[1]) ) % 10;
+            var bankerNumber = ( cardValue(bankerCards[0]) + cardValue(bankerCards[1]) ) % 10;
             console.log(playerNumber, bankerNumber);
 
             //判斷發牌
@@ -174,25 +198,27 @@ io.on('connection', (socket) => {
                 else if(playerNumber<6)//玩家補牌的狀況
                 {
                     getCard(playerCards, Cards);
-                    playerNumber = (playerNumber+playerCards[2])%10;
+                    let playerCard3Value = cardValue(playerCards[2])
+                    playerNumber = (playerNumber+ playerCard3Value)%10;
+                    console.log(playerCard3Value);
 
                     if(bankerNumber <=2) //判斷莊家是否要補
                         bH=1;
 
                     switch(bankerNumber){
                         case 3:
-                            if(playerCards[2]!=8)
+                            if(playerCard3Value!=8)
                                 bH=1;
                             break;
                         case 4:
-                            if(playerCards[2]>=2 && playerCards[2]<=7)
+                            if(playerCard3Value>=2 && playerCard3Value<=7)
                                 bH=1;
                             break;
                         case 5:
-                            if(playerCards[2]>=4 && playerCards[2]<=7)
+                            if(playerCard3Value>=4 && playerCard3Value<=7)
                                 bH=1;
                         case 6:
-                            if(playerCards[2]>=6 && playerCards[2]<=7)
+                            if(playerCard3Value>=6 && playerCard3Value<=7)
                                 bH=1;
                             break;
                     }
@@ -201,51 +227,115 @@ io.on('connection', (socket) => {
                 if(bH == 1 )
                 {
                     getCard(bankerCards, Cards);
-                    bankerNumber = (bankerNumber+bankerCards[2])%10;
+                    bankerNumber = (bankerNumber + cardValue(bankerCards[2]))%10;
                 }
             }
-
             
-            theWin = findWin(playerNumber, bankerNumber);
+            let theWins = [];
+            let theWin = findWin(playerNumber, bankerNumber);
+            theWins.push(theWin);
+
             console.log(playerCards, bankerCards);
             console.log(playerNumber, bankerNumber);
             console.log(findWin(playerNumber, bankerNumber));
 
-            let times = 0;
-            switch(theWin){
-                case 'banker':
-                    times = 1.95;
-                    break;
-                case 'player':
-                    times = 2;
-                    break;
-                case 'even':
-                    times = 8;
-                    break;
-            }
-
             let room = await redisClient.hget('member:'+memberData.id, 'room');
+            
+            let showCards = {
+                player: playerCards,
+                banker: bankerCards,
+            };
+            io.in(room).emit('showCards', showCards);
+            //socket.emit('showCards', showCards);
 
-            winnersObj = await redisClient.hgetall('betOn:'+room+':'+theWin);
-            console.log('winnersObj', winnersObj);
+            //閒對
+            if(playerCards[0].slice(1) == playerCards[1].slice(1))
+                theWins.push('pPair');
+            //莊對
+            if(bankerCards[0].slice(1) == bankerCards[1].slice(1))
+                theWins.push('bPair');
+            //閒單 //閒雙
+            if(playerNumber%2 == 1)
+                theWins.push('pOdd');
+            else
+                theWins.push('pEven');
+            //莊單 //莊雙
+            if(bankerNumber%2 == 1)
+                theWins.push('bOdd');
+            else
+                theWins.push('bEven');
+            //大 //小
+            if(playerCards.length + bankerCards.length == 4)
+                theWins.push('small');
+            else
+                theWins.push('big');
 
-            if(winnersObj)
+            for(let theWin of theWins)
             {
-                let winners = Object.keys(winnersObj);
-                console.log(winners);
+                let times = 0;
+                switch(theWin){
+                    case 'banker':
+                        times = 1.95;
+                        break;
+                    case 'player':
+                        times = 2;
+                        break;
+                    case 'tie':
+                        times = 8;
+                        break;
+                    case 'bOdd':
+                        times = 1.95;
+                        break;
+                    case 'pOdd':
+                        times = 1.92;
+                        break;
+                    case 'pPair':
+                        times = 12;
+                        break;
+                    case 'bPair':
+                        times = 12;
+                        break;
+                    case 'bEven':
+                        times = 1.88;
+                        break;
+                    case 'pEven':
+                        times = 1.92;
+                        break;
+                    case 'big':
+                        times = 1.53;
+                        break;
+                    case 'small':
+                        times = 2.45;
+                        break;
+                }
 
-                for(let memberWin of winners)
+                winnersObj = await redisClient.hgetall('betOn:'+room+':'+theWin);
+                console.log('winnersObj', winnersObj);
+
+                if(winnersObj)
                 {
-                    if (memberWin!='total')
+                    let winners = Object.keys(winnersObj);
+                    console.log(winners);
+
+                    for(let memberWin of winners)
                     {
-                        let betReturn = times * winnersObj[memberWin];
-                        await addMoney(memberWin, betReturn);
+                        if (memberWin!='total')
+                        {
+                            betReturnPrice = times * winnersObj[memberWin]
+                            await addMoney(memberWin, betReturnPrice);
 
-                        let socketid = await redisClient.hget('member:'+memberWin, 'socketid');
+                            let betReturn = {
+                                price: betReturnPrice,
+                                by: theWin,
+                                type: 'win',
+                            };
 
-                        socket.broadcast.to(socketid).emit('betReturn', betReturn);
-                        if(socket.id == socketid)
-                            socket.emit('betReturn', betReturn);
+                            let socketid = await redisClient.hget('member:'+memberWin, 'socketid');
+
+                            socket.broadcast.to(socketid).emit('betReturn', betReturn);
+                            if(socket.id == socketid)
+                                socket.emit('betReturn', betReturn);
+                        }
                     }
                 }
             }
@@ -265,6 +355,12 @@ io.on('connection', (socket) => {
         }
     });
 
+    async function addMoney(memberId, moneyToAdd)
+    {
+        memberMoney = await redisClient.hget('member:'+memberId,'money');
+        await redisClient.hset('member:'+memberId,'money', parseInt(memberMoney) + parseInt(moneyToAdd));
+    }
+
     function getCard(whoseCards, Cards)
     {
         let cardChose = Math.floor(Math.random() * Cards.length);
@@ -275,7 +371,7 @@ io.on('connection', (socket) => {
     function findWin(playerNumber, bankerNumber)
     {
         if(playerNumber == bankerNumber)
-            return 'even';
+            return 'tie';
         else if(playerNumber>bankerNumber)
             return 'player';
         else
@@ -300,6 +396,13 @@ io.on('connection', (socket) => {
         }
     }
 
+    function cardValue(card)
+    {  
+        let cardNum = parseInt(card.slice(1));
+        let cardValue = (cardNum<10) ? cardNum : 0;
+        return cardValue;
+    }
+
     async function addBet(key, key1, betPrice)
     {
         totalBet = JSON.parse(await redisClient.hget(key, key1));
@@ -320,9 +423,20 @@ io.on('connection', (socket) => {
 server.listen(7000, async (req, res) => {
     console.log("server started. http://localhost:7000");
     let cardNum = 6;
-    let card13 = [1,2,3,4,5,6,7,8,9,10,11,12,13];
+    let colors = ['s','h','d','c'];
     allCards = [];
-    for(let i = 1; i <= cardNum*4; i ++)
-        allCards = allCards.concat(card13);
+
+    let card52 = [];
+    for(let j = 0; j<4; j++)
+    {
+        let card13 = [];
+        for(let k = 1; k<=13; k++)
+            card13.push(colors[j]+k.toString());
+        card52 = card52.concat(card13);
+    }
+
+    for(let i = 1; i <= cardNum; i ++)
+        allCards = allCards.concat(card52);
+
     redisClient.flushdb();
 });

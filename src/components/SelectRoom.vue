@@ -45,14 +45,19 @@ export default {
     mounted() {
         var theToken = window.name;
 
+        if(sessionStorage.token !=null)
+        {
+            this.$socket.emit('leaveRoom');
+        }
+
         if(sessionStorage.token == null || theToken)
             sessionStorage.setItem('token',theToken);
         window.name = '';
         console.log(typeof theToken);
 
         let connectData = {
-                token: sessionStorage.token,
-            }
+            token: sessionStorage.token,
+        }
         this.$socket.emit('isOnline',connectData);
     }
 }

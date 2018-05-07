@@ -5,15 +5,14 @@
     <div class="card-place">
       <div class="player-card">
         <span class="card">閒家</span> 
-        <span id="playerCard1">{{playerCard[0]}}</span>
-        <span id="playerCard2">{{playerCard[1]}}</span>
-        <span id="playerCard3">{{playerCard[2]}}</span>
+        <br>
+        <span id="playerCard1">{{playerCard}}</span>
+        
       </div>
       <div class="banker-card">
         <span class="card">莊家</span>
-        <span id="bankerCard1">{{bankerCard[0]}}</span>
-        <span id="bankerCard2">{{bankerCard[1]}}</span>
-        <span id="bankerCard3">{{bankerCard[2]}}</span>
+        <br>
+        <span id="bankerCard1">{{bankerCard}}</span>
       </div>
     </div>
     <div class="bet-place">
@@ -22,17 +21,17 @@
       </div>
       <div class="bet-middle">
         <div class="bet-middle-up">
-          <div class="bet-small">小</div>
-          <div class="bet-even" @click="bet(betPrice,'even')">合</div>
-          <div class="bet-big">大</div>
+          <div class="bet-small" @click="bet(betPrice,'small')">小</div>
+          <div class="bet-tie" @click="bet(betPrice,'tie')">合</div>
+          <div class="bet-big" @click="bet(betPrice,'big')">大</div>
         </div>
         <div class="bet-middle-down">
-          <div class="player-single">閒單</div>
-          <div class="player-double">閒雙</div>
-          <div class="player-pair">閒對</div>
-          <div class="banker-pair">莊對</div>
-          <div class="banker-double">莊雙</div>
-          <div class="banker-single">莊單</div>
+          <div class="player-odd" @click="bet(betPrice,'pOdd')">閒單</div>
+          <div class="player-even" @click="bet(betPrice,'pEven')">閒雙</div>
+          <div class="player-pair" @click="bet(betPrice,'pPair')">閒對</div>
+          <div class="banker-pair" @click="bet(betPrice,'bPair')">莊對</div>
+          <div class="banker-even" @click="bet(betPrice,'bEven')">莊雙</div>
+          <div class="banker-odd" @click="bet(betPrice,'bOdd')">莊單</div>
         </div>
       </div>
       <div class="bet-banker" @click="bet(betPrice,'banker')">
@@ -86,11 +85,6 @@ export default {
       
     },
 
-    leaveRoom()
-    {
-      //sessionStorage.removeItem('roomName');
-    },
-
     startGame()
     {
       let gameData = {
@@ -102,6 +96,13 @@ export default {
   },
 
   sockets: {
+    showCards(cards)
+    {
+      console.log(cards);
+      this.bankerCard = cards.banker;
+      this.playerCard = cards.player;
+    },
+
     showBet(showBet)
     {
       console.log(showBet);
@@ -117,11 +118,14 @@ export default {
 
     betReturn(betReturn)
     {
-      this.money = this.money + parseInt(betReturn);
-      console.log('betReturn', betReturn, typeof betReturn);
+      this.money = this.money + parseInt(betReturn.price);
+      console.log('betReturn', betReturn, betReturn.by, betReturn.type);
+    },
+
+    disconnect()
+    {
+      this.$socket.emit('leaveRoom', sessionStorage.token);
     }
-
-
   },
 
   mounted() {
@@ -225,7 +229,7 @@ h1, h2 {
       width: 33%;
       border-right: 2px solid #dbcd8b;
     }
-    .bet-even{
+    .bet-tie{
       float: left;
       height: 100%;
       width: 33%;
@@ -240,13 +244,13 @@ h1, h2 {
     height: 50%;
     border-top: 2px solid #dbcd8b;
   }
-    .player-single{
+    .player-odd{
       float: left;
       height: 100%;
       width: 16.3%;
       border-right: 2px solid #dbcd8b;
     }
-    .player-double{
+    .player-even{
       float: left;
       height: 100%;
       width: 16.3%;
@@ -264,13 +268,13 @@ h1, h2 {
       width: 16.3%;
       border-right: 2px solid #dbcd8b;
     }
-    .banker-double{
+    .banker-even{
       float: left;
       height: 100%;
       width: 16.3%;
       border-right: 2px solid #dbcd8b;
     }
-    .banker-single{
+    .banker-odd{
       float: left;
       height: 100%;
       width: 14.5%;
