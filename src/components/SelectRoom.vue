@@ -35,30 +35,20 @@ export default {
             this.Acc = data.Acc;
             sessionStorage.Acc = this.Acc;
         },
-
-        connect()
-        {
-            
-        },
     },
 
     mounted() {
         var theToken = window.name;
 
-        if(sessionStorage.token !=null)
-        {
-            this.$socket.emit('leaveRoom');
-        }
-
         if(sessionStorage.token == null || theToken)
-            sessionStorage.setItem('token',theToken);
+            sessionStorage.setItem('token', theToken);
         window.name = '';
         console.log(typeof theToken);
 
         let connectData = {
             token: sessionStorage.token,
         }
-        this.$socket.emit('isOnline',connectData);
+        this.$socket.emit('lobby',connectData);
     }
 }
 </script>

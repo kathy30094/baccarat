@@ -1,6 +1,6 @@
 <template>
   <div class="hello">
-    <div>{{$route.params.room}}     {{Acc}}</div>
+    <div>{{roomName}}     {{Acc}}</div>
     <router-link to="/" ><span @click="leaveRoom">回大廳</span></router-link>
     <div class="card-place">
       <div class="player-card">
@@ -18,24 +18,77 @@
     <div class="bet-place">
       <div class="bet-player" @click="bet(betPrice,'player')">
         <span class="bet">閒家</span>
+        <br>
+        me : {{mybet.player}}
+        <br>
+        all : {{allbet.player}}
       </div>
       <div class="bet-middle">
         <div class="bet-middle-up">
-          <div class="bet-small" @click="bet(betPrice,'small')">小</div>
-          <div class="bet-tie" @click="bet(betPrice,'tie')">合</div>
-          <div class="bet-big" @click="bet(betPrice,'big')">大</div>
+          <div class="bet-small" @click="bet(betPrice,'small')">小
+            <br>
+            me : {{mybet.small}}
+            <br>
+            all : {{allbet.small}}
+          </div>
+          <div class="bet-tie" @click="bet(betPrice,'tie')">合
+            <br>
+            me : {{mybet.tie}}
+            <br>
+            all : {{allbet.tie}}
+          </div>
+          <div class="bet-big" @click="bet(betPrice,'big')">大
+            <br>
+            me : {{mybet.big}}
+            <br>
+            all : {{allbet.big}}
+          </div>
         </div>
         <div class="bet-middle-down">
-          <div class="player-odd" @click="bet(betPrice,'pOdd')">閒單</div>
-          <div class="player-even" @click="bet(betPrice,'pEven')">閒雙</div>
-          <div class="player-pair" @click="bet(betPrice,'pPair')">閒對</div>
-          <div class="banker-pair" @click="bet(betPrice,'bPair')">莊對</div>
-          <div class="banker-even" @click="bet(betPrice,'bEven')">莊雙</div>
-          <div class="banker-odd" @click="bet(betPrice,'bOdd')">莊單</div>
+          <div class="player-odd" @click="bet(betPrice,'pOdd')">閒單
+            <br>
+            me : {{mybet.pOdd}}
+            <br>
+            all : {{allbet.pOdd}}
+          </div>
+          <div class="player-even" @click="bet(betPrice,'pEven')">閒雙
+            <br>
+            me : {{mybet.pEven}}
+            <br>
+            all : {{allbet.pEven}}
+          </div>
+          <div class="player-pair" @click="bet(betPrice,'pPair')">閒對
+            <br>
+            me : {{mybet.pPair}}
+            <br>
+            all : {{allbet.pPair}}
+          </div>
+          <div class="banker-pair" @click="bet(betPrice,'bPair')">莊對
+            <br>
+            me : {{mybet.bPair}}
+            <br>
+            all : {{allbet.bPair}}
+          </div>
+          <div class="banker-even" @click="bet(betPrice,'bEven')">莊雙
+            <br>
+            me : {{mybet.bEven}}
+            <br>
+            all : {{allbet.bEven}}
+          </div>
+          <div class="banker-odd" @click="bet(betPrice,'bOdd')">莊單
+            <br>
+            me : {{mybet.bOdd}}
+            <br>
+            all : {{allbet.bOdd}}
+          </div>
         </div>
       </div>
       <div class="bet-banker" @click="bet(betPrice,'banker')">
         <span class="bet">莊家</span>
+        <br>
+            me : {{mybet.banker}}
+            <br>
+            all : {{allbet.banker}}
       </div>
     </div>
     <div class="buttom">
@@ -60,6 +113,32 @@ export default {
       Acc: '',
       playerCard: [],
       bankerCard: [],
+      mybet: {
+        tie: 0,
+        banker: 0,
+        player: 0,
+        small: 0,
+        big: 0,
+        bOdd: 0,
+        pPair: 0,
+        bEven: 0,
+        pEven: 0,
+        pOdd: 0,
+        bPair: 0,
+      },
+      allbet: {
+        tie: 0,
+        banker: 0,
+        player: 0,
+        small: 0,
+        big: 0,
+        bOdd: 0,
+        pPair: 0,
+        bEven: 0,
+        pEven: 0,
+        pOdd: 0,
+        bPair: 0,
+      },
     }
   },
 
@@ -76,13 +155,20 @@ export default {
       this.$socket.emit('bet',betData);
     },
 
+    leaveRoom()
+    {
+      this.$socket.emit('leaveRoom')
+    },
+
     betClear()
     {
       let clearData = {
         token:sessionStorage.token,
       };
       this.$socket.emit('betClear',clearData);
-      
+      let mybetkey = Object.keys(this.mybet);
+      for(let bet of mybetkey)
+        this.mybet[bet] = 0;
     },
 
     startGame()
@@ -96,6 +182,38 @@ export default {
   },
 
   sockets: {
+
+    newGame()
+    {
+      let mybetkey = Object.keys(this.mybet);
+      for(let bet of mybetkey)
+        this.mybet[bet] = 0;
+      let allbetkey = Object.keys(this.allbet);
+      for(let bet of allbetkey)
+        this.allbet[bet] = 0;
+    },
+
+    roomData(roomData)
+    {
+      console.log(roomData);
+      if(roomData.length!=0)
+      {
+        for(let bet of roomData)
+        {
+          if(bet.betTotal)
+            this.allbet[bet.theBet] = bet.betTotal;
+          if(bet.mybet)
+            this.mybet[bet.theBet] = bet.mybet;
+        }
+      }
+      
+    },
+    
+    roomNow(roomNow)
+    {
+      this.roomName = roomNow;
+    },
+
     showCards(cards)
     {
       console.log(cards);
@@ -105,7 +223,11 @@ export default {
 
     showBet(showBet)
     {
+      //betPeople: "11", bet: 100, betOn: "bOdd", totalBetThis: 110, betThisRun: 700
       console.log(showBet);
+      if(showBet.betPeople==sessionStorage.Acc)
+        this.mybet[showBet.betOn] = showBet.bet;
+      this.allbet[showBet.betOn] = showBet.totalBetThis;
     },
 
     moneyLeft(money)
@@ -114,18 +236,15 @@ export default {
       {
         this.money = money;
       }
+      console.log(money);
     },
 
     betReturn(betReturn)
     {
-      this.money = this.money + parseInt(betReturn.price);
-      console.log('betReturn', betReturn, betReturn.by, betReturn.type);
+      this.money = betReturn.moneyNow;
+      console.log('add',this.money+betReturn.price);
+      console.log('betReturn', betReturn);
     },
-
-    disconnect()
-    {
-      this.$socket.emit('leaveRoom', sessionStorage.token);
-    }
   },
 
   mounted() {
@@ -135,7 +254,7 @@ export default {
     let joinData = {
       room: this.$route.params.room,
       token: sessionStorage.token,
-    }
+    };
 
     this.money=this.$route.params.money;
     this.Acc= sessionStorage.Acc;

@@ -22,9 +22,9 @@ var allCards = [];
 io.on('connection', (socket) => {
 
     console.log('Hello!');
-    
-    socket.on('betClear', async (data) => {
 
+    async function betClear(data)
+    {
         let memberData = await authAndGetAcc(data.token);
 
         let room = await redisClient.hget('member:'+memberData.id, 'room');
@@ -54,15 +54,25 @@ io.on('connection', (socket) => {
                 }
             }
 
+            await addMoney(memberData.id, betReturnPrice);
+
+            let moneyNow =  await redisClient.hget('member:'+memberData.id, 'money');
+
             let betReturn = {
                 price: betReturnPrice,
                 by: 'clear',
                 type: 'clear',
+                moneyNow: moneyNow,
             };
-            await addMoney(memberData.id, betReturn);
-            socket.emit('betReturn', betReturn);
-        }
 
+            socket.emit('betReturn', betReturn);
+
+            let roomData = await getRoomData(room, memberData.id);
+            io.to(room).emit('roomData',roomData);
+        }
+    }
+    socket.on('betClear', async (data) => {
+        await betClear(data);
     });
 
     socket.on('bet', async (betData) => {
@@ -88,7 +98,7 @@ io.on('connection', (socket) => {
 
             let showBet = {
                 betPeople: memberData.Account,
-                meBetThis: meBetThis,
+                bet: meBetThis,
                 betOn: betData.betOn,
                 totalBetThis: totalBetThis,
                 betThisRun: betThisRun,
@@ -98,50 +108,55 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('isOnline',async (data) => {
+    socket.on('lobby',async (data) => {
+
         let memberData = await authAndGetAcc(data.token);
+        
+        //更新socket id
+        await redisClient.set('socketId:'+socket.id,memberData.id);
+        await redisClient.hset('member:'+memberData.id, 'socketid', socket.id);
 
-        await redisClient.set('socketIds:'+socket. id,memberData.id);
+        //if有room， check if不是 大廳 刪除room資料 
+        let room = await redisClient.hget('member:'+memberData.id, 'room');
 
-        let money = await redisClient.hget('member:'+memberData.id, 'money');///////////////////////////////////需改為從某處拿資料
-        if(!money)
+        //初次
+        if(!room)
         {
-            money =2000
+            let money = await redisClient.hget('member:'+memberData.id, 'money');///////////////////////////////////需改為從某處拿資料
+            if(!money)
+                money =2000
+
+            let accData = {
+                Acc: memberData.Account,
+                money: money, 
+            }
+
+            await redisClient.hmset('member:'+memberData.id, [
+                'Acc', memberData.Account, 
+                'token', data.token, 
+                'money', money,
+                'room', 'lobby'
+            ]);
+
+            socket.emit('memberData',accData);
+            await redisClient.sadd('rooms:lobby', memberData.id);
         }
+        else if(room!='lobby')
+        {
+            await redisClient.srem('rooms:'+room, memberData.id);
+            await redisClient.hset('member:'+memberData.id, 'lobby', 'lobby');
+            await redisClient.sadd('rooms:lobby', memberData.id);
+            socket.leave(room);
 
-        let accData = {
-            Acc: memberData.Account,
-            money: money, 
+            await betClear(data);
         }
-
-        await redisClient.hmset('member:'+memberData.id, [
-            'Acc', memberData.Account, 
-            'socketid', socket.id, 
-            'token', data.token, 
-            'money', money
-        ]);
-
-        socket.emit('memberData',accData);
     });
 
     socket.on('disconnect', async () => {
-        //del room
-        let memberID = await redisClient.get('socketIds:'+socket.id);
-        let room = await redisClient.hget('member:'+memberID, 'room');
-        console.log(room);
-
-        await redisClient.hdel('member:'+ memberID, 'room');
-        await redisClient.srem('rooms:'+room, memberID);
-
-        //leave room 
-        socket.leave(room);
-
-        //betclear
-
-    });
-
-    socket.on('leaveRoom',async () => {
-        
+        //socket id & member id 對照刪除
+        let memberId = await redisClient.get('socketId:'+socket.id);
+        await redisClient.del('socketId:'+socket.id);
+        await redisClient.hdel('member:'+memberId, socket.id);
     });
 
     // joinData = {
@@ -149,13 +164,40 @@ io.on('connection', (socket) => {
     //     token: sessionStorage.token,
     //   }
     socket.on('joinRoom',async (joinData) =>{
+
         let memberData = await authAndGetAcc(joinData.token);
+        let room = await redisClient.hget('member:'+memberData.id, 'room');
 
-        await redisClient.hset('member:'+memberData.id, 'room', joinData.room);
-        socket.join(joinData.room);
-        redisClient.sadd('rooms:'+joinData.room, memberData.id);
+        let moneyLeft = await redisClient.hget('member:'+memberData.id, 'money');
+            socket.emit('moneyLeft', moneyLeft);
 
+        //一般加入
+        if(joinData.room)
+        {
+            await redisClient.hset('member:'+memberData.id, 'room', joinData.room);
+            socket.join(joinData.room);
+            redisClient.sadd('rooms:'+joinData.room, memberData.id);
+            redisClient.srem('rooms:lobby', memberData.id);
+            room = joinData.room;
+            await getRoomData(room, memberData.id);
+        }
+        //重整頁面 or 斷線重連
+        else if(!joinData.room && room!='lobby' && room)
+        {
+            //更新socket id
+            await redisClient.set('socketId:'+socket.id,memberData.id);
+            await redisClient.hset('member:'+memberData.id, 'socketid', socket.id, )
+            socket.join(room);
+
+            console.log('roomNow', room);
+            socket.emit('roomNow', room);
+            await getRoomData(room, memberData.id);
+        }
+        else if(room =='lobby')
+            console.log('error way to page');
     });
+
+    
 
     socket.on('startGame', async (gameData) => {
 
@@ -324,10 +366,12 @@ io.on('connection', (socket) => {
                             betReturnPrice = times * winnersObj[memberWin]
                             await addMoney(memberWin, betReturnPrice);
 
+                            let moneyNow =  await redisClient.hget('member:'+memberWin, 'money');
                             let betReturn = {
                                 price: betReturnPrice,
                                 by: theWin,
                                 type: 'win',
+                                moneyNow: moneyNow,
                             };
 
                             let socketid = await redisClient.hget('member:'+memberWin, 'socketid');
@@ -339,7 +383,7 @@ io.on('connection', (socket) => {
                     }
                 }
             }
-
+            
             //清除所有bet
             bets = await redisClient.keys('betOn:'+room+'*');
             redisClient.del(bets);
@@ -352,8 +396,28 @@ io.on('connection', (socket) => {
             {
                 await redisClient.hdel('member:'+member, 'betThisRun');
             }
+
+            io.to(room).emit('newGame');
         }
     });
+
+    async function getRoomData(room, memberId){
+        
+        let betOns = await redisClient.keys('betOn:'+room+':*');
+        console.log(betOns);
+        let roomData = [];
+        for(let betOn of betOns)
+        {
+            let betTotal = await redisClient.hget(betOn, 'total');
+            let mybet = await redisClient.hget(betOn, memberId);
+            let theBet = betOn.slice(('betOn:'+room+':').length)
+
+            roomData.push({betTotal: betTotal, mybet: mybet, theBet: theBet});
+        }
+        socket.emit('roomData',roomData);
+        console.log(roomData);
+        return roomData;
+    }
 
     async function addMoney(memberId, moneyToAdd)
     {
