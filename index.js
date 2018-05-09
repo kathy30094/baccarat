@@ -23,54 +23,6 @@ io.on('connection', (socket) => {
 
     console.log('Hello!');
 
-    async function betClear(data)
-    {
-        let memberData = await authAndGetAcc(data.token);
-
-        let room = await redisClient.hget('member:'+memberData.id, 'room');
-
-        let betReturnPrice = 0;
-
-        let betThisRun = await redisClient.hget('member:'+memberData.id, 'betThisRun');
-        if(betThisRun && betThisRun!=0)
-        {
-            await redisClient.hdel('member:'+memberData.id, 'betThisRun');
-            let betOpctions = await redisClient.keys('betOn:'+room+'*');
-            console.log('betOpctions', betOpctions);
-            if(betOpctions)
-            {
-                for(let betSelect of betOpctions)
-                {
-                    let betPrice = await redisClient.hget(betSelect, memberData.id);
-                    if(betPrice)
-                    {
-                        await redisClient.hdel(betSelect, memberData.id);
-
-                        let total = await redisClient.hget(betSelect, 'total');
-                        await redisClient.hset(betSelect, 'total', total - betPrice);
-
-                        betReturnPrice = betReturnPrice + parseInt(betPrice);
-                    }
-                }
-            }
-
-            await addMoney(memberData.id, betReturnPrice);
-
-            let moneyNow =  await redisClient.hget('member:'+memberData.id, 'money');
-
-            let betReturn = {
-                price: betReturnPrice,
-                by: 'clear',
-                type: 'clear',
-                moneyNow: moneyNow,
-            };
-
-            socket.emit('betReturn', betReturn);
-
-            let roomData = await getRoomData(room, memberData.id);
-            io.to(room).emit('roomData',roomData);
-        }
-    }
     socket.on('betClear', async (data) => {
         await betClear(data);
     });
@@ -196,8 +148,6 @@ io.on('connection', (socket) => {
         else if(room =='lobby')
             console.log('error way to page');
     });
-
-    
 
     socket.on('startGame', async (gameData) => {
 
@@ -351,7 +301,83 @@ io.on('connection', (socket) => {
                         break;
                 }
 
-                winnersObj = await redisClient.hgetall('betOn:'+room+':'+theWin);
+                if(theWin=='tie')
+                {
+                    let back = 1;
+                    await pushMoney(back, 'banker',room);
+                    await pushMoney(back, 'player',room);
+                }
+                await pushMoney(times,theWin,room);
+
+            }
+            
+            //清除所有bet
+            bets = await redisClient.keys('betOn:'+room+'*');
+            redisClient.del(bets);
+
+            //清除betThisRun
+            let membersInRoom = await redisClient.smembers('rooms:'+room);
+            for(let member of membersInRoom)
+            {
+                await redisClient.hdel('member:'+member, 'betThisRun');
+            }
+
+            io.to(room).emit('newGame');
+        }
+    });
+
+    async function betClear(data)
+    {
+        let memberData = await authAndGetAcc(data.token);
+
+        let room = await redisClient.hget('member:'+memberData.id, 'room');
+
+        let betReturnPrice = 0;
+
+        let betThisRun = await redisClient.hget('member:'+memberData.id, 'betThisRun');
+        if(betThisRun && betThisRun!=0)
+        {
+            await redisClient.hdel('member:'+memberData.id, 'betThisRun');
+            let betOpctions = await redisClient.keys('betOn:'+room+'*');
+            console.log('betOpctions', betOpctions);
+            if(betOpctions)
+            {
+                for(let betSelect of betOpctions)
+                {
+                    let betPrice = await redisClient.hget(betSelect, memberData.id);
+                    if(betPrice)
+                    {
+                        await redisClient.hdel(betSelect, memberData.id);
+
+                        let total = await redisClient.hget(betSelect, 'total');
+                        await redisClient.hset(betSelect, 'total', total - betPrice);
+
+                        betReturnPrice = betReturnPrice + parseInt(betPrice);
+                    }
+                }
+            }
+
+            await addMoney(memberData.id, betReturnPrice);
+
+            let moneyNow =  await redisClient.hget('member:'+memberData.id, 'money');
+
+            let betReturn = {
+                price: betReturnPrice,
+                by: 'clear',
+                type: 'clear',
+                moneyNow: moneyNow,
+            };
+
+            socket.emit('betReturn', betReturn);
+
+            let roomData = await getRoomData(room, memberData.id);
+            io.to(room).emit('roomData',roomData);
+        }
+    }
+    
+    async function pushMoney(times,theWin,room)
+    {
+        winnersObj = await redisClient.hgetall('betOn:'+room+':'+theWin);
                 console.log('winnersObj', winnersObj);
 
                 if(winnersObj)
@@ -363,7 +389,8 @@ io.on('connection', (socket) => {
                     {
                         if (memberWin!='total')
                         {
-                            betReturnPrice = times * winnersObj[memberWin]
+                            betReturnPrice = times * winnersObj[memberWin];
+
                             await addMoney(memberWin, betReturnPrice);
 
                             let moneyNow =  await redisClient.hget('member:'+memberWin, 'money');
@@ -382,26 +409,10 @@ io.on('connection', (socket) => {
                         }
                     }
                 }
-            }
-            
-            //清除所有bet
-            bets = await redisClient.keys('betOn:'+room+'*');
-            redisClient.del(bets);
+    }
 
-            //清除betThisRun
-            let membersInRoom = await redisClient.smembers('rooms:'+room);
-            console.log('membersInRoom',membersInRoom);
-
-            for(let member of membersInRoom)
-            {
-                await redisClient.hdel('member:'+member, 'betThisRun');
-            }
-
-            io.to(room).emit('newGame');
-        }
-    });
-
-    async function getRoomData(room, memberId){
+    async function getRoomData(room, memberId)
+    {
         
         let betOns = await redisClient.keys('betOn:'+room+':*');
         console.log(betOns);
@@ -425,21 +436,20 @@ io.on('connection', (socket) => {
         await redisClient.hset('member:'+memberId,'money', parseInt(memberMoney) + parseInt(moneyToAdd));
     }
 
-    function getCard(whoseCards, Cards)
+    async function addBet(key, key1, betPrice)
     {
-        let cardChose = Math.floor(Math.random() * Cards.length);
-        whoseCards.push(Cards[cardChose]);
-        Cards.splice(cardChose, 1);
-    }
-
-    function findWin(playerNumber, bankerNumber)
-    {
-        if(playerNumber == bankerNumber)
-            return 'tie';
-        else if(playerNumber>bankerNumber)
-            return 'player';
+        totalBet = JSON.parse(await redisClient.hget(key, key1));
+        if(totalBet)
+        {
+            totalBet = totalBet + betPrice;
+            await redisClient.hset(key, key1, totalBet);
+            return totalBet;
+        }
         else
-            return 'banker';
+        {
+            await redisClient.hset(key, key1, betPrice);
+            return betPrice;
+        }
     }
 
     async function authAndGetAcc(token)
@@ -467,20 +477,21 @@ io.on('connection', (socket) => {
         return cardValue;
     }
 
-    async function addBet(key, key1, betPrice)
+    function getCard(whoseCards, Cards)
     {
-        totalBet = JSON.parse(await redisClient.hget(key, key1));
-        if(totalBet)
-        {
-            totalBet = totalBet + betPrice;
-            await redisClient.hset(key, key1, totalBet);
-            return totalBet;
-        }
+        let cardChose = Math.floor(Math.random() * Cards.length);
+        whoseCards.push(Cards[cardChose]);
+        Cards.splice(cardChose, 1);
+    }
+
+    function findWin(playerNumber, bankerNumber)
+    {
+        if(playerNumber == bankerNumber)
+            return 'tie';
+        else if(playerNumber>bankerNumber)
+            return 'player';
         else
-        {
-            await redisClient.hset(key, key1, betPrice);
-            return betPrice;
-        }
+            return 'banker';
     }
 });
 
